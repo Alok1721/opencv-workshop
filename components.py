@@ -24,7 +24,7 @@ BLACK = (0, 0, 0)
 graph_colors = [ GREEN, RED, ORANGE, CYAN, MAGENTA, YELLOW, PURPLE, PINK, LIME, BROWN, MAROON, OLIVE]
 
 font = pygame.font.Font(None, 50)
-small_font = pygame.font.Font(None, 36)
+small_font = pygame.font.Font(None, 22)
 
 
 def draw_back_button(screen):

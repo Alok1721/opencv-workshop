@@ -13,13 +13,11 @@ class SocketClient:
         self.active = True
         self.player_id = ""
         
-        threading.Thread(target=self.handle_client).start()
-
     def handle_client(self):
         """Handles communication with the client."""
         try:
             while self.active:
-                data = self.client_socket.recv(1024)
+                data = self.client_socket.recv(65536)
                 if data:
                     try:
                         json_data = json.loads(data.decode())
@@ -29,10 +27,10 @@ class SocketClient:
                             player_socket_map[self.player_id] = self
                             print(f"Client {self.client_address} identified as {self.player_id}")
                         
-                        self.manager.process_player_data(json_data)
+                        self.manager.process_player_data(self.player_id, json_data)
                     except json.JSONDecodeError:
                         print(f"Failed to decode JSON from {self.client_address}: {data.decode()}")
-                        self.send_data({"error": "Invalid JSON format"})
+                        self.send_data({"type": "error", "error": "Invalid JSON format"})
                 else:
                     break
         except Exception as e:
@@ -42,9 +40,13 @@ class SocketClient:
 
     def send_data(self, data):
         """Sends data to the client."""
-        if self.active:
-            json_data = json.dumps(data)
-            self.client_socket.sendall(json_data.encode('utf-8'))
+        try:
+            if self.active:
+                json_data = json.dumps(data)
+                self.client_socket.sendall(json_data.encode('utf-8'))
+        except Exception as e:
+            print(f"Error sending data to {self.client_address}: {e}")
+            self.close_connection()
     
     def close_connection(self):
         """Closes the connection with the client."""
@@ -63,7 +65,8 @@ class SocketInterface:
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.bind((host, port))
         self.server_socket.listen(5)
-        # self.clients = []
+
+        self.accepting_connections = True
 
     def send_to_client(self, client_name, data):
         """Sends data to a specific client."""
@@ -84,12 +87,14 @@ class SocketInterface:
         print(f"Server started. Listening on {self.host}:{self.port}...")
         try:
             while self.manager.running:
+                if not self.accepting_connections:
+                    continue
+
                 client_socket, client_address = self.server_socket.accept()
                 print(f"Connection from {client_address} established!")
 
-                client_handler = SocketClient(self.manager, client_socket, client_address)
-                player_socket_map[client_address] = client_handler
-                # self.clients.append(client_handler)
+                sock = SocketClient(self.manager, client_socket, client_address)
+                threading.Thread(target=sock.handle_client).start()
         except KeyboardInterrupt:
             print("Server shutting down...")
         except Exception as e:
