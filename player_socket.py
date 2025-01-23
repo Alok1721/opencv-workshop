@@ -36,6 +36,7 @@ frame_processed = False
 team_name = ""
 receive_score=0
 receive_stage=1
+recieve_tries=5
 
 BASIC_COLORS = {
     "red": (255, 0, 0),
@@ -74,18 +75,21 @@ def hsv_to_rgb(hsv_color):
     return (int(r * 255), int(g * 255), int(b * 255))
 
 def display_score_and_stage():
-    global receive_score, receive_stage
+    global receive_score, receive_stage ,recieve_tries
 
     if receive_score is not None and receive_stage is not None:
         # Circular background for score
         pygame.draw.circle(screen, (0, 0, 255), (500, 50), 40)  # Blue circle at (400, 50) with radius 40
         score_text = font.render(f"Score: {receive_score}", True, components.WHITE)
-        screen.blit(score_text, (400 - score_text.get_width() // 2, 50 - score_text.get_height() // 2))  # Center text
+        screen.blit(score_text, (500 - score_text.get_width() // 2, 50 - score_text.get_height() // 2))  # Center text
 
         # Circular background for stage
         pygame.draw.circle(screen, (255, 0, 0), (500, 150), 40)  # Red circle at (400, 150) with radius 40
         stage_text = font.render(f"Stage: {receive_stage}", True, components.WHITE)
-        screen.blit(stage_text, (400 - stage_text.get_width() // 2, 150 - stage_text.get_height() // 2))  # Center text
+        screen.blit(stage_text, (500 - stage_text.get_width() // 2, 150 - stage_text.get_height() // 2))  # Center text
+        pygame.draw.circle(screen, (0, 255, 0), (500, 250), 40)  # Red circle at (400, 150) with radius 40
+        stage_text = font.render(f"Tries: {recieve_tries}", True, components.WHITE)
+        screen.blit(stage_text, (500 - stage_text.get_width() // 2, 250 - stage_text.get_height() // 2))  # Center text
     pygame.display.update()
 
 def receive_message():
@@ -93,7 +97,7 @@ def receive_message():
     buffer = ""
     init_data = json.dumps({"type": "init", "team_name": team_name})
     client_socket.send(init_data.encode('utf-8'))
-    global receive_stage,receive_score
+    global receive_stage,receive_score,recieve_tries
 
     while running:
         try:
@@ -115,6 +119,7 @@ def receive_message():
                        
                        receive_score=json_data['score']
                        receive_stage=json_data['stage']
+                       recieve_tries=json_data['tries']
                        print(f"json data:${receive_score}") 
                 except json.JSONDecodeError:
                     print(f"[ERROR] Failed to decode JSON data")

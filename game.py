@@ -100,7 +100,7 @@ class Player:
     def __init__(self, client_name):
         self.client_name = client_name
         self.score = 0
-        self.tries = 10
+        self.tries = 5
         self.stage = 1
 
 
@@ -137,7 +137,8 @@ class Manager:
         self.socket_interface.send_to_client(team_name, {
             "type": "result",
             "score": player.score,
-            "stage": player.stage
+            "stage": player.stage,
+            "tries": player.tries
         })
     def create_player(self, team_name):
         if team_name not in teams:
