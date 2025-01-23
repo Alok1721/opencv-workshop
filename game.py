@@ -6,7 +6,6 @@ import base64
 from server import SocketInterface
 import numpy as np
 
-
 # Constants
 BUFF_SIZE = 65536
 host_ip = 'localhost'  # Change this to your server's IP
@@ -26,7 +25,6 @@ correct_result = [[1, 2], [3, 5], [6, 7], [5, 6]]
 
 # Video Capture for webcam
 cap = cv2.VideoCapture(0)  # Use webcam
-ret, frame = False, None
 
 def get_frame_answer(frame):
     """Identify shapes and colors using simplified HSV mapping."""
@@ -61,6 +59,8 @@ def get_frame_answer(frame):
                 continue
             center_x = int(M["m10"] / M["m00"])
             center_y = int(M["m01"] / M["m00"])
+            
+
 
             perimeter = cv2.arcLength(contour, True)
             approx = cv2.approxPolyDP(contour, 0.04 * perimeter, True)
@@ -178,7 +178,7 @@ class Manager:
         pygame.display.flip()
 
     def run(self):
-        cap = cv2.VideoCapture(0)
+        # cap = cv2.VideoCapture(1)
         socket_thread = threading.Thread(target=self.socket_interface.run_server)
         socket_thread.start()
 

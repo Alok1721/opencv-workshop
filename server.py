@@ -2,7 +2,7 @@ import socket
 import threading
 import json
 
-player_socket_map = {}
+player_socket_map = {} #socket instance for each player
 
 class SocketClient:
     """Handles communication with a specific client."""
@@ -15,6 +15,7 @@ class SocketClient:
         
     def handle_client(self):
         """Handles communication with the client."""
+        print(f"Client {self.client_address} connected.")
         try:
             while self.active:
                 data = self.client_socket.recv(65536)

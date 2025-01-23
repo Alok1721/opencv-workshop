@@ -24,7 +24,8 @@ screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Zine CV - Client")
 font = pygame.font.Font(None, 28)
 last_processed_frame = None
-
+bg = pygame.image.load("score.jpg")
+bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
 # Client state
 client_socket = None
 shapes_list = []
@@ -136,18 +137,27 @@ def identify_shapes_and_colors(frame):
 
 def receive_message():
     global client_socket, frame_processed, last_processed_frame
+    buffer = ""
     while running:
         try:
             msg = client_socket.recv(BUFF_SIZE)
             if msg:
+                # buffer += msg.decode('utf-8')
+                # json_data, idx = json.JSONDecoder().raw_decode(buffer)
+                # json_data = json.loads(msg.decode('utf-8'))
+                # print(f"[INFO] Received data: {json_data['type']} ")
+                # if json_data["type"] == "result":
+                #     print(f"[INFO] Received results: {json_data['score']}")
                 try:
                     json_data = json.loads(msg.decode('utf-8'))
+                    # print("[INFO] Received data: ", json_data)
                     if json_data['type'] == 'video_frame':
                         receive_video(json_data['frame'])
-                    elif json_data['type'] == 'results':
-                        print(f"[INFO] Received results: {json_data['results']}")
+                    # elif json_data['type'] == 'result':
+                    #     print(f"[INFO] Received results: {json_data['result']}")
                 except json.JSONDecodeError:
                     print(f"[ERROR] Failed to decode JSON data")
+                # buffer = buffer[idx:]
             else:
                 print("[INFO] Connection closed by server")
                 break
@@ -174,8 +184,7 @@ def receive_video(message):
             last_processed_frame = frame.copy()
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame = cv2.rotate(frame, cv2.ROTATE_180)
-        # frame = np.rot90(frame)
+        frame = np.rot90(frame)
         frame_surface = pygame.surfarray.make_surface(frame)
         screen.blit(frame_surface, (0, 0))
 
@@ -210,19 +219,28 @@ def draw_shape_list():
         screen.blit(shape_text, (text_x, y_offset))
         y_offset += 30
 
-def send_shapes_to_server():
+def send_shapes_to_server(team_name):
     """Send the current shapes list to the server."""
     global shapes_list, client_socket
     try:
-        shapes_data = json.dumps({"shapes": shapes_list})  # Convert shapes list to JSON format
+        shapes_data = json.dumps({
+            "team_name": team_name,
+             "shapes": shapes_list})  # Convert shapes list to JSON format
         client_socket.send(shapes_data.encode('utf-8'))
         print("[INFO] Shapes list sent to server.")
     except Exception as e:
         print(f"[ERROR] Error sending shapes list: {e}")
 
+def get_team_name():
+    """Prompt the user for their team name."""
+    team_name = input("Enter your team name: ")
+    return team_name
+
 def start_client():
     """Connect to the server and handle events."""
     global client_socket, running
+    screen.blit(bg, (0, 0))
+    team_name = get_team_name()
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock_thread = threading.Thread(target=receive_message, daemon=True)
 
@@ -248,7 +266,7 @@ def start_client():
                     elif 300 <= x <= 500 and HEIGHT - 100 <= y <= HEIGHT - 50:
                         running = False
                     elif 550 <= x <= 750 and HEIGHT - 100 <= y <= HEIGHT - 50:  # Send Shapes button
-                        send_shapes_to_server()
+                        send_shapes_to_server(team_name)
 
             # Draw buttons
             pygame.draw.rect(screen, (0, 255, 0), (50, HEIGHT - 100, 200, 50))
