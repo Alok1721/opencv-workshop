@@ -6,6 +6,7 @@ import numpy as np
 import colorsys
 import cv2
 import json
+import components
 
 # Constants
 BUFF_SIZE = 65536
@@ -71,60 +72,67 @@ def identify_shapes_and_colors(frame):
     """Identify shapes and colors using simplified HSV mapping."""
     global shapes_list
     shapes_list.clear()
-
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    color_ranges = {
+        'red': [
+            (np.array([0, 100, 100]), np.array([10, 255, 255])),
+            (np.array([160, 100, 100]), np.array([180, 255, 255]))
+        ],
+        'blue': [(np.array([90, 50, 50]), np.array([130, 255, 255]))],
+        'green': [(np.array([30, 50, 50]), np.array([90, 255, 255]))]
 
-    # Define range of white color in HSV
-    lower_white = np.array([0,0,200])
-    upper_white = np.array([180,30,255])
+    }
+    result_list = []
 
-    # Threshold the HSV image to get only white colors
-    mask = cv2.inRange(hsv, lower_white, upper_white)
+    for color_name, ranges in color_ranges.items():
+        color_mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+        color_mask = cv2.GaussianBlur(color_mask, (5, 5), 0)
+        kernel = np.ones((5, 5), np.uint8)
+        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel)
+        for lower, upper in ranges:
+            mask = cv2.inRange(hsv, lower, upper)
+            color_mask = cv2.bitwise_or(color_mask, mask)
 
-    # Bitwise-AND mask and original image
-    res = cv2.bitwise_and(frame,frame, mask= mask)
+        contours, _ = cv2.findContours(color_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            if cv2.contourArea(contour) < 50:
+                continue
 
-    gray = cv2.cvtColor(res, cv2.COLOR_BGR2GRAY)
+            M = cv2.moments(contour)
+            if M["m00"] == 0:
+                continue
+            center_x = int(M["m10"] / M["m00"])
+            center_y = int(M["m01"] / M["m00"])
+            
 
-    _, thresh = cv2.threshold(gray, 10, 255, cv2.THRESH_BINARY)
 
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            perimeter = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, 0.04 * perimeter, True)
+            num_vertices = len(approx)
 
-    frame_area = frame.shape[0] * frame.shape[1]
+            if num_vertices == 3:
+                shape = "triangle"
+            elif num_vertices == 4:
+                x, y, w, h = cv2.boundingRect(approx)
+                aspect_ratio = float(w) / h
+                shape = "square" if 0.90 <= aspect_ratio <= 1.1 else "rectangle"
+            elif num_vertices > 4:
+                shape = "circle"
+            else:
+                continue
 
-    for contour in contours:
-        epsilon = 0.04 * cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, epsilon, True)
+            result_list.append({
+                'shape': shape,
+                'color': color_name,
+                'center_x': center_x,
+                'center_y': center_y,
+            })
+            cv2.putText(frame, str(shape), (center_x, center_y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.drawContours(frame, [approx], 0, (255, 255, 255), -1)
+            x, y, w, h = cv2.boundingRect(approx)
+            shapes_list.append((shape, color_name))
 
-        contour_area = cv2.contourArea(contour)
-        min_area_threshold = frame_area * 0.001
-        if contour_area < min_area_threshold:
-            continue
-
-        if len(approx) == 3:
-            shape = "Triangle"
-        elif len(approx) == 4:
-            shape = "Rectangle"
-        elif len(approx) > 4:
-            shape = "Circle"
-        else:
-            continue
-
-        mask = np.zeros_like(frame, dtype=np.uint8)
-        cv2.drawContours(mask, [approx], 0, (255, 255, 255), -1)
-        mask_gray = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
-        mask_gray[mask_gray > 0] = 255
-
-        mean_hsv = cv2.mean(hsv, mask=mask_gray)[:3]
-        color_name = get_simplified_color_name(mean_hsv)
-        color_rgb = BASIC_COLORS[color_name]  # Get RGB from HSV
-
-        x, y, w, h = cv2.boundingRect(approx)
-        shapes_list.append((shape, color_name, color_rgb))  # Store RGB
-
-        cv2.drawContours(frame, [approx], -1, color_rgb, 3)  # Use RGB for drawing
-
-    return frame
+    return frame, result_list
 
 def receive_message():
     global client_socket, frame_processed, last_processed_frame
@@ -149,7 +157,9 @@ def receive_message():
         except Exception as e:
             print(f"[ERROR] Error: {e}")
             break
-
+def process_and_draw(frame):
+    nodes_shortest = shortest_path(frame)
+    directions_creation(frame, nodes_shortest)
 
 def receive_video(message):
     """Receive and display video stream."""
@@ -160,11 +170,12 @@ def receive_video(message):
 
     if frame is not None:
         if frame_processed:
-            frame = identify_shapes_and_colors(frame)
+            frame,_ = identify_shapes_and_colors(frame)
             last_processed_frame = frame.copy()
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame = np.rot90(frame)
+        frame = cv2.rotate(frame, cv2.ROTATE_180)
+        # frame = np.rot90(frame)
         frame_surface = pygame.surfarray.make_surface(frame)
         screen.blit(frame_surface, (0, 0))
 
@@ -175,6 +186,11 @@ def receive_video(message):
 
             processed_frame_x = VIDEO_WIDTH - processed_frame_surface.get_width() // 2
             screen.blit(processed_frame_surface, (processed_frame_x, 0))
+            # print("\n\nshortest path\n:",shortest_path(last_processed_frame))
+            # threading.Thread(target=process_and_draw,args=(last_processed_frame,), daemon=True).start()
+            # nodes_shortest=shortest_path(last_processed_frame)
+            # directions_creation(last_processed_frame, nodes_shortest)
+            # print("Thread execution completed, proceeding further...")
 
         if frame_processed:
             draw_shape_list()
@@ -188,8 +204,8 @@ def draw_shape_list():
     """Draw the list of identified shapes."""
     pygame.draw.rect(screen, (0, 0, 0), (VIDEO_WIDTH // 2 + VIDEO_WIDTH//4, 0, SHAPES_LIST_WIDTH, SHAPES_LIST_HEIGHT))
     y_offset = SHAPE_OFFSET_Y
-    for shape, color_name, color in shapes_list:
-        shape_text = font.render(f"{shape} - {color_name}", True, color)
+    for shape, color_name in shapes_list:
+        shape_text = font.render(f"{shape} - {color_name}", True, components.WHITE)
         text_x = (VIDEO_WIDTH//2 + VIDEO_WIDTH//4) + (SHAPES_LIST_WIDTH // 2 - shape_text.get_width() // 2)
         screen.blit(shape_text, (text_x, y_offset))
         y_offset += 30
@@ -266,5 +282,94 @@ def process_frame():
     frame_processed = True
     print("[INFO] Processing frame...")
 
+
+'''finding teh shortest path'''
+def totalCost(mask, curr, n, cost, memo, parent):
+    if mask == (1 << n) - 1:
+        return cost[curr][start_node]
+    if memo[curr][mask] != -1:
+        return memo[curr][mask]
+    ans = float('inf')
+    next_city = -1
+    for i in range(n):
+        if (mask & (1 << i)) == 0:  
+            temp_cost = cost[curr][i] + totalCost(mask | (1 << i), i, n, cost, memo, parent)
+            if temp_cost < ans:
+                ans = temp_cost
+                next_city = i
+    memo[curr][mask] = ans
+    parent[curr][mask] = next_city
+    return ans
+
+
+def tsp(cost, start):
+    global start_node
+    start_node = start  
+
+    n = len(cost)
+    memo = [[-1] * (1 << n) for _ in range(n)]
+    parent = [[-1] * (1 << n) for _ in range(n)]
+    min_cost = totalCost(1 << start_node, start_node, n, cost, memo, parent)
+    path = []
+    mask = 1 << start_node
+    curr = start_node
+    while curr != -1:
+        path.append(curr)
+        curr = parent[curr][mask]
+        if curr != -1:
+            mask |= (1 << curr)
+    path.append(start_node)
+    return min_cost, path
+
+def cost_matrix(result):
+    
+    n = len(result)
+    return [[((result[j]['center_x'] - result[i]['center_x']) ** 2 +
+              (result[j]['center_y'] - result[i]['center_y']) ** 2)
+             for j in range(n)] for i in range(n)]
+def decode_node(tour, result):
+    
+    return [(result[i]['center_x'], result[i]['center_y']) for i in tour] + \
+           [(result[tour[0]]['center_x'], result[tour[0]]['center_y'])]
+
+
+def find_starting_node(result_list, start_shape, start_color):
+    """Find the index of the starting node based on shape and color."""
+    for i, item in enumerate(result_list):
+        if item['shape'] == start_shape and item['color'] == start_color:
+            return i
+    raise ValueError(f"No object found with shape '{start_shape}' and color '{start_color}'.")
+
+def arrange_by_coordinates(result_list, node_cord):
+
+    arranged_list = []
+    
+    for x, y in node_cord:
+        for item in result_list:
+            if item['center_x'] == x and item['center_y'] == y:
+                arranged_list.append(item)
+                break
+    # list=send(arranged_list)                
+                
+    return list
+def directions_creation(image, nodes):
+                    
+    for i in range(len(nodes) - 1):
+        cv2.line(image, nodes[i], nodes[i + 1], (128, 0, 128), 2)
+        cv2.imshow('Path', image)
+        cv2.waitKey(500)
+    cv2.waitKey(0)
+def shortest_path(image):
+    print("inside the function")
+    _,result_list=identify_shapes_and_colors(image)
+    cost = cost_matrix(result_list)
+    # start_node = find_starting_node(result_list, "rectangle", "red")#randomly giving the value of shape and color
+    start_node=0
+    print("\n\n start_node",start_node)
+    min_cost,best_tour = tsp(cost, start_node)
+    node_coords = decode_node(best_tour, result_list)
+    print("\n\n node_coords",node_coords)
+    return node_coords
+    # return arrange_by_coordinates(result_list, node_coords)
 if __name__ == "__main__":
     start_client()
