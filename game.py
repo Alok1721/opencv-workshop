@@ -4,7 +4,7 @@ import cv2
 import components
 import base64
 from server import SocketInterface
-
+import numpy as np
 
 # Constants
 BUFF_SIZE = 65536
@@ -28,21 +28,80 @@ players = []  # Store players as instances of Player class
 accepting_clients = True
 
 # Video Capture for webcam
-cap = cv2.VideoCapture(0)  # Use webcam
-ret, frame = False, None
+# cap = cv2.VideoCapture(1)  # Use webcam
+# ret, frame = False, None
 
 def get_frame_answer(frame):
     shapes = []
     # do opencv stuff and 
     # shapes.append(['Circle', 'red', [255, 0, 0]])
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    color_ranges = {
+        'red': [
+            (np.array([0, 100, 100]), np.array([10, 255, 255])),
+            (np.array([160, 100, 100]), np.array([180, 255, 255]))
+        ],
+        'blue': [(np.array([90, 50, 50]), np.array([130, 255, 255]))],
+        'green': [(np.array([30, 50, 50]), np.array([90, 255, 255]))]
+
+    }
+    result_list = []
+
+    for color_name, ranges in color_ranges.items():
+        color_mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+        color_mask = cv2.GaussianBlur(color_mask, (5, 5), 0)
+        kernel = np.ones((5, 5), np.uint8)
+        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel)
+        for lower, upper in ranges:
+            mask = cv2.inRange(hsv, lower, upper)
+            color_mask = cv2.bitwise_or(color_mask, mask)
+
+        contours, _ = cv2.findContours(color_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            if cv2.contourArea(contour) < 50:
+                continue
+
+            M = cv2.moments(contour)
+            if M["m00"] == 0:
+                continue
+            center_x = int(M["m10"] / M["m00"])
+            center_y = int(M["m01"] / M["m00"])
+            
+
+
+            perimeter = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, 0.04 * perimeter, True)
+            num_vertices = len(approx)
+
+            if num_vertices == 3:
+                shape = "triangle"
+            elif num_vertices == 4:
+                x, y, w, h = cv2.boundingRect(approx)
+                aspect_ratio = float(w) / h
+                shape = "square" if 0.90 <= aspect_ratio <= 1.1 else "rectangle"
+            elif num_vertices > 4:
+                shape = "circle"
+            else:
+                continue
+
+            result_list.append({
+                'shape': shape,
+                'color': color_name,
+                'center_x': center_x,
+                'center_y': center_y,
+            })
+            cv2.putText(frame, str(shape), (center_x, center_y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.drawContours(frame, [approx], 0, (255, 255, 255), -1)
+            x, y, w, h = cv2.boundingRect(approx)
+            shapes.append([shape, color_name])
     return shapes
 
 class Player:
-    def __init__(self, client_addr):
-        self.client_addr = client_addr
+    def __init__(self, client_name):
+        self.client_name = client_name
         self.score = 0
-        self.tries = 0
-        self.stage = 0
+        self.tries = 10
+        self.stage = 1
 
 
 class Manager:
@@ -52,18 +111,36 @@ class Manager:
 
         self.ret, self.frame = False, None
 
-    def process_player_data(self, player_id, data):
+    def process_player_data(self, team_name, data):
         # {'shapes': [['Circle', 'invalid', [255, 255, 255]], ['Triangle', 'invalid', [255, 255, 255]], ['Circle', 'invalid', [255, 255, 255]], ['Triangle', 'blue', [0, 0, 255]], ['Circle', 'red', [255, 0, 0]], ['Rectangle', 'green', [0, 255, 0]], ['Triangle', 'invalid', [255, 255, 255]], ['Circle', 'invalid', [255, 255, 255]]]}
+        if not any(player.client_name == team_name for player in players):
+            player = Player(team_name)
+            players.append(player)
         player_shapes = data.get("shapes", [])
+        print(f"Player {team_name} sent {len(player_shapes)} shapes.")
+        print(player_shapes)
         # evaluate player data
 
         validation_data = get_frame_answer(self.frame)
         correct = 0
+        print(validation_data)
         for i in range(len(validation_data)):
-            if validation_data[i] in player_shapes[i]:
-                correct += 1
+            if validation_data[i] in player_shapes:
+                correct += 10
+        for player in players:
+            if player.client_name == team_name:
+                if len(player_shapes) != len(validation_data):
+                    correct-=5;
+                player.score = max(correct,player.score)
+                player.stage = 1  
+                player.tries -= 1
+                self.socket_interface.send_to_client(team_name, {
+                    "type": "result",
+                    "score": player.score,
+                    "stage": player.stage
+                })
 
-        self.socket_interface.send_to_client(player_id, {
+        self.socket_interface.send_to_client(team_name, {
             "type": "result",
             "score": correct,
             "stage": 1
@@ -79,8 +156,8 @@ class Manager:
         
         start_y = 150
         for idx, player in enumerate(players):
-            pygame.draw.rect(screen, components.GRAY, (WIDTH // 2 - 150, start_y + idx * 60, 300, 50), border_radius=10)
-            text = components.font.render(f"{player.client_addr} (Score: {player.score}, Tries: {player.tries}, Stage: {player.stage})", True, components.BLACK)
+            pygame.draw.rect(screen, components.GRAY, (WIDTH // 2 - 300, start_y + idx * 60, 600, 50), border_radius=10)
+            text = components.font.render(f"{player.client_name} (Score: {player.score}, Tries: {player.tries}, Stage: {player.stage})", True, components.BLACK)
             screen.blit(text, (WIDTH // 2 - text.get_width() // 2, start_y + idx * 60 + 10))
 
         # Start Game Button
@@ -98,7 +175,7 @@ class Manager:
         pygame.display.flip()
 
     def run(self):
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(1)
         socket_thread = threading.Thread(target=self.socket_interface.run_server)
         socket_thread.start()
 

@@ -2,7 +2,7 @@ import socket
 import threading
 import json
 
-player_socket_map = {}
+player_socket_map = {} #socket instance for each player
 
 class SocketClient:
     """Handles communication with a specific client."""
@@ -11,25 +11,26 @@ class SocketClient:
         self.client_socket = client_socket
         self.client_address = client_address
         self.active = True
-        self.player_id = ""
+        self.team_name = ""
         
         threading.Thread(target=self.handle_client).start()
 
     def handle_client(self):
         """Handles communication with the client."""
+        print(f"Client {self.client_address} connected.")
         try:
             while self.active:
                 data = self.client_socket.recv(1024)
                 if data:
                     try:
                         json_data = json.loads(data.decode())
-                        if not self.player_id:
-                            self.player_id = json_data.get("player_id", "")
+                        if not self.team_name:
+                            self.team_name = json_data.get("team_name", "")
 
-                            player_socket_map[self.player_id] = self
-                            print(f"Client {self.client_address} identified as {self.player_id}")
+                            player_socket_map[self.team_name] = self
+                            print(f"Client {self.client_address} identified as {self.team_name}")
                         
-                        self.manager.process_player_data(json_data)
+                        self.manager.process_player_data(self.team_name,json_data)
                     except json.JSONDecodeError:
                         print(f"Failed to decode JSON from {self.client_address}: {data.decode()}")
                         self.send_data({"error": "Invalid JSON format"})
@@ -50,7 +51,7 @@ class SocketClient:
         """Closes the connection with the client."""
         self.active = False
         self.client_socket.close()
-        player_socket_map.pop(self.player_id, None)
+        player_socket_map.pop(self.team_name, None)
         print(f"Connection to {self.client_address} closed.")
 
 
