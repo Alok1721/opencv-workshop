@@ -7,6 +7,7 @@ import colorsys
 import cv2
 import json
 import components
+from player_logic import identify_shapes_and_colors
 
 # Constants
 BUFF_SIZE = 65536
@@ -32,6 +33,7 @@ shapes_list = []
 stage1_response=[]
 running = True
 frame_processed = False
+team_name = ""
 
 BASIC_COLORS = {
     "red": (255, 0, 0),
@@ -68,76 +70,42 @@ def hsv_to_rgb(hsv_color):
     v = v/255
     r, g, b = colorsys.hsv_to_rgb(h, s, v)
     return (int(r * 255), int(g * 255), int(b * 255))
+def display_score_and_stage():
+    global global_score, global_stage
 
-def identify_shapes_and_colors(frame):
-    """Identify shapes and colors using simplified HSV mapping."""
-    global shapes_list
-    shapes_list.clear()
-    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-    color_ranges = {
-        'red': [
-            (np.array([0, 100, 100]), np.array([10, 255, 255])),
-            (np.array([160, 100, 100]), np.array([180, 255, 255]))
-        ],
-        'blue': [(np.array([90, 50, 50]), np.array([130, 255, 255]))],
-        'green': [(np.array([30, 50, 50]), np.array([90, 255, 255]))]
+    if global_score is not None and global_stage is not None:
+        # Circular background for score
+        pygame.draw.circle(screen, (0, 0, 255), (400, 50), 40)  # Blue circle at (400, 50) with radius 40
+        score_text = font.render(f"Score: {global_score}", True, components.WHITE)
+        screen.blit(score_text, (400 - score_text.get_width() // 2, 50 - score_text.get_height() // 2))  # Center text
 
-    }
-    result_list = []
+        # Circular background for stage
+        pygame.draw.circle(screen, (255, 0, 0), (400, 150), 40)  # Red circle at (400, 150) with radius 40
+        stage_text = font.render(f"Stage: {global_stage}", True, components.WHITE)
+        screen.blit(stage_text, (400 - stage_text.get_width() // 2, 150 - stage_text.get_height() // 2))  # Center text
+    pygame.display.update()
+def display_score_and_stage():
+    global receive_score, receive_stage
 
-    for color_name, ranges in color_ranges.items():
-        color_mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
-        color_mask = cv2.GaussianBlur(color_mask, (5, 5), 0)
-        kernel = np.ones((5, 5), np.uint8)
-        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel)
-        for lower, upper in ranges:
-            mask = cv2.inRange(hsv, lower, upper)
-            color_mask = cv2.bitwise_or(color_mask, mask)
+    if receive_score is not None and receive_stage is not None:
+        # Circular background for score
+        pygame.draw.circle(screen, (0, 0, 255), (400, 50), 40)  # Blue circle at (400, 50) with radius 40
+        score_text = font.render(f"Score: {receive_score}", True, components.WHITE)
+        screen.blit(score_text, (400 - score_text.get_width() // 2, 50 - score_text.get_height() // 2))  # Center text
 
-        contours, _ = cv2.findContours(color_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        for contour in contours:
-            if cv2.contourArea(contour) < 50:
-                continue
+        # Circular background for stage
+        pygame.draw.circle(screen, (255, 0, 0), (400, 150), 40)  # Red circle at (400, 150) with radius 40
+        stage_text = font.render(f"Stage: {receive_stage}", True, components.WHITE)
+        screen.blit(stage_text, (400 - stage_text.get_width() // 2, 150 - stage_text.get_height() // 2))  # Center text
 
-            M = cv2.moments(contour)
-            if M["m00"] == 0:
-                continue
-            center_x = int(M["m10"] / M["m00"])
-            center_y = int(M["m01"] / M["m00"])
-            
-
-
-            perimeter = cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, 0.04 * perimeter, True)
-            num_vertices = len(approx)
-
-            if num_vertices == 3:
-                shape = "triangle"
-            elif num_vertices == 4:
-                x, y, w, h = cv2.boundingRect(approx)
-                aspect_ratio = float(w) / h
-                shape = "square" if 0.90 <= aspect_ratio <= 1.1 else "rectangle"
-            elif num_vertices > 4:
-                shape = "circle"
-            else:
-                continue
-
-            result_list.append({
-                'shape': shape,
-                'color': color_name,
-                'center_x': center_x,
-                'center_y': center_y,
-            })
-            cv2.putText(frame, str(shape), (center_x, center_y), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            cv2.drawContours(frame, [approx], 0, (255, 255, 255), -1)
-            x, y, w, h = cv2.boundingRect(approx)
-            shapes_list.append((shape, color_name))
-
-    return frame, result_list
 
 def receive_message():
     global client_socket, frame_processed, last_processed_frame
     buffer = ""
+    init_data = json.dumps({"type": "init", "team_name": team_name})
+    client_socket.send(init_data.encode('utf-8'))
+    global receive_stage,receive_score
+
     while running:
         try:
             msg = client_socket.recv(BUFF_SIZE)
@@ -153,8 +121,12 @@ def receive_message():
                     # print("[INFO] Received data: ", json_data)
                     if json_data['type'] == 'video_frame':
                         receive_video(json_data['frame'])
-                    # elif json_data['type'] == 'result':
-                    #     print(f"[INFO] Received results: {json_data['result']}")
+                    elif json_data['type'] == 'result':
+                       print(f"[INFO] Received results: {json_data['score']}")
+                       
+                       receive_score=json_data['score']
+                       receive_stage=json_data['stage']
+                       print(f"json data:${receive_score}") 
                 except json.JSONDecodeError:
                     print(f"[ERROR] Failed to decode JSON data")
                 # buffer = buffer[idx:]
@@ -173,14 +145,16 @@ def process_and_draw(frame):
 
 def receive_video(message):
     """Receive and display video stream."""
-    global frame_processed, last_processed_frame
+    global frame_processed, last_processed_frame,shapes_list
     frame_data = base64.b64decode(message)
     nparr = np.frombuffer(frame_data, np.uint8)
     frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
     if frame is not None:
         if frame_processed:
-            frame,_ = identify_shapes_and_colors(frame)
+            shapes_list.clear()
+            frame,result = identify_shapes_and_colors(frame)
+            shapes_list = result
             last_processed_frame = frame.copy()
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -191,10 +165,11 @@ def receive_video(message):
         if last_processed_frame is not None:
             processed_frame_rgb = cv2.cvtColor(last_processed_frame, cv2.COLOR_BGR2RGB)
             processed_frame_rgb = np.rot90(processed_frame_rgb)
+            # processed_frame_rgb = cv2.rotate(processed_frame_rgb, cv2.ROTATE_180)
             processed_frame_surface = pygame.surfarray.make_surface(processed_frame_rgb)
 
             processed_frame_x = VIDEO_WIDTH - processed_frame_surface.get_width() // 2
-            screen.blit(processed_frame_surface, (processed_frame_x, 0))
+            screen.blit(processed_frame_surface, (processed_frame_x+130, 0))
             # print("\n\nshortest path\n:",shortest_path(last_processed_frame))
             # threading.Thread(target=process_and_draw,args=(last_processed_frame,), daemon=True).start()
             # nodes_shortest=shortest_path(last_processed_frame)
@@ -208,36 +183,137 @@ def receive_video(message):
         # pygame.display.update()
 
   
-
 def draw_shape_list():
-    """Draw the list of identified shapes."""
-    pygame.draw.rect(screen, (0, 0, 0), (VIDEO_WIDTH // 2 + VIDEO_WIDTH//4, 0, SHAPES_LIST_WIDTH, SHAPES_LIST_HEIGHT))
-    y_offset = SHAPE_OFFSET_Y
-    for shape, color_name in shapes_list:
+    """Draw the list of identified shapes at the bottom of the screen."""
+    list_height = HEIGHT // 2 - 100  # Define the height of the shape list area
+    list_y = HEIGHT // 2   # Position the list at the bottom of the screen
+    pygame.draw.rect(screen, (0, 0, 0), (0, HEIGHT//2, WIDTH, HEIGHT//2-100))  
+
+    y_offset = list_y + SHAPE_OFFSET_Y  # Start drawing text inside the bottom area
+    column_width = SHAPES_LIST_WIDTH // 2 +30  # Width of each column
+    column_x = WIDTH // 2 - column_width  # Start drawing from the center
+    
+    max_shapes_per_column = 6  # Number of shapes per column
+    column_width = 150  # Width of each column
+    start_x = 20  # Starting X position for first column
+    start_y = list_y + 20
+    for i, (shape, color_name) in enumerate(shapes_list):
         shape_text = font.render(f"{shape} - {color_name}", True, components.WHITE)
-        text_x = (VIDEO_WIDTH//2 + VIDEO_WIDTH//4) + (SHAPES_LIST_WIDTH // 2 - shape_text.get_width() // 2)
-        screen.blit(shape_text, (text_x, y_offset))
-        y_offset += 30
+
+        # Calculate the current column index
+        column_index = i // max_shapes_per_column  
+        text_x = start_x + (column_index * column_width)  # Adjust column position
+        text_y = start_y + (i % max_shapes_per_column) * 30  # Space each row by 30 pixels
+
+        # Stop printing if we exceed the available width
+        if text_x + column_width > WIDTH:
+            break  # Prevent overflow beyond screen width
+
+        screen.blit(shape_text, (text_x, text_y)) # Space between each entry
+    display_score_and_stage()
+
+
+# def draw_shape_list():
+#     """Draw the list of identified shapes."""
+#     pygame.draw.rect(screen, (0, 0, 0), (VIDEO_WIDTH // 2 + VIDEO_WIDTH//4, 0, SHAPES_LIST_WIDTH, SHAPES_LIST_HEIGHT))
+#     y_offset = SHAPE_OFFSET_Y
+#     for shape, color_name in shapes_list:
+#         shape_text = font.render(f"{shape} - {color_name}", True, components.WHITE)
+#         text_x = (VIDEO_WIDTH//2 + VIDEO_WIDTH//4) + (SHAPES_LIST_WIDTH // 2 - shape_text.get_width() // 2)
+#         screen.blit(shape_text, (text_x, y_offset))
+#         y_offset += 30
 
 def send_shapes_to_server(team_name):
     """Send the current shapes list to the server."""
     global shapes_list, client_socket
     try:
         shapes_data = json.dumps({
+            "type": "answer",
             "team_name": team_name,
-             "shapes": shapes_list})  # Convert shapes list to JSON format
+            "shapes": shapes_list})  # Convert shapes list to JSON format
         client_socket.send(shapes_data.encode('utf-8'))
-        print("[INFO] Shapes list sent to server.")
+        show_message("Shapes sent successfully!", (0, 255, 0))  # Green for success
+        # print(shapes_data)
     except Exception as e:
-        print(f"[ERROR] Error sending shapes list: {e}")
+        show_message(f"Error sending shapes: {e}", (255, 0, 0)) 
+
+
+def show_message(message, color):
+    """Display a temporary message on the Pygame window."""
+    font = pygame.font.Font(None, 48)
+    text_surface = font.render(message, True, color)
+    text_rect = text_surface.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+    overlay = pygame.Surface((WIDTH, HEIGHT))
+    overlay.set_alpha(150) 
+    overlay.fill((0, 0, 0))
+    screen.blit(overlay, (0, 0))
+    screen.blit(text_surface, text_rect)
+    pygame.display.flip()
+    pygame.time.delay(2000)
+    screen.fill((0, 0, 0))
+    pygame.display.update()
+
 
 def get_team_name():
-    """Prompt the user for their team name."""
-    team_name = input("Enter your team name: ")
+    global team_name
+    """Display a Pygame window to input the team name and return it."""
+    input_active = True
+
+    input_box = pygame.Rect(WIDTH//2 - 150, HEIGHT//2 - 20, 300, 40)
+    color_inactive = pygame.Color('lightskyblue3')
+    color_active = pygame.Color('dodgerblue2')
+    color = color_inactive
+    active = False
+    watermark = pygame.image.load("score.jpg")  # Load the watermark image
+    watermark = pygame.transform.scale(watermark, (WIDTH, HEIGHT))  # Resize to fit the screen
+    watermark.set_alpha(70)
+
+    screen.fill((0, 0, 0))  # Clear screen
+    font = pygame.font.Font(None, 36)
+    prompt_text = font.render("Enter your team name:", True, (255, 255, 255))
+    screen.blit(prompt_text, (WIDTH//2 - prompt_text.get_width()//2, HEIGHT//2 - 60))
+
+    while input_active:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if input_box.collidepoint(event.pos):
+                    active = not active
+                else:
+                    active = False
+                color = color_active if active else color_inactive
+
+            if event.type == pygame.KEYDOWN:
+                if active:
+                    if event.key == pygame.K_RETURN:
+                        input_active = False  # Exit input loop
+                    elif event.key == pygame.K_BACKSPACE:
+                        team_name = team_name[:-1]
+                    else:
+                        team_name += event.unicode
+
+        screen.fill((0, 0, 0))  # Clear screen again for updates
+        screen.blit(prompt_text, (WIDTH//2 - prompt_text.get_width()//2, HEIGHT//2 - 60))
+        screen.blit(watermark, (0, 0)) 
+        pygame.draw.rect(screen, color, input_box, 2)
+        text_surface = font.render(team_name, True, (255, 255, 255))
+        screen.blit(text_surface, (input_box.x + 10, input_box.y + 5))
+
+        pygame.display.flip()
+        screen.fill((0, 0, 0))
+        screen.blit(watermark, (0, 0)) 
+
+    # pygame.quit()  # Close Pygame window after input
     return team_name
+
 
 def start_client():
     """Connect to the server and handle events."""
+    global team_name
+    
     global client_socket, running
     screen.blit(bg, (0, 0))
     team_name = get_team_name()
@@ -263,24 +339,27 @@ def start_client():
                     x, y = event.pos
                     if 50 <= x <= 250 and HEIGHT - 100 <= y <= HEIGHT - 50:
                         process_frame()
-                    elif 300 <= x <= 500 and HEIGHT - 100 <= y <= HEIGHT - 50:
+                    elif 400 <= x <= 600 and HEIGHT - 100 <= y <= HEIGHT - 50:
                         running = False
-                    elif 550 <= x <= 750 and HEIGHT - 100 <= y <= HEIGHT - 50:  # Send Shapes button
+                    elif 700 <= x <= 900 and HEIGHT - 100 <= y <= HEIGHT - 50:  # Send Shapes button
                         send_shapes_to_server(team_name)
 
             # Draw buttons
             pygame.draw.rect(screen, (0, 255, 0), (50, HEIGHT - 100, 200, 50))
-            pygame.draw.rect(screen, (255, 0, 0), (300, HEIGHT - 100, 200, 50))
-            pygame.draw.rect(screen, (0, 0, 255), (550, HEIGHT - 100, 200, 50))  # Blue button
+            pygame.draw.rect(screen, (255, 0, 0), (400, HEIGHT - 100, 200, 50))
+            pygame.draw.rect(screen, (0, 0, 255), (700, HEIGHT - 100, 200, 50))  # Blue button
+            # pygame.draw.rect(screen, (100, 100, 255), (400, 200, 230, 50))  # Lighter blue
+            # pygame.draw.rect(screen, (50, 50, 205), (400, 100, 230, 50))    # Medium blue
+            # pygame.draw.rect(screen, (0, 0, 155), (400, 0, 230, 50))
 
             process_text = font.render("Process Frame", True, (255, 255, 255))
             disconnect_text = font.render("Disconnect", True, (255, 255, 255))
             send_shapes_text = font.render("Send Shapes", True, (255, 255, 255))
 
             screen.blit(process_text, (50 + 100 - process_text.get_width() // 2, HEIGHT - 90))
-            screen.blit(disconnect_text, (300 + 100 - disconnect_text.get_width() // 2, HEIGHT - 90))
-            screen.blit(send_shapes_text, (550 + 100 - send_shapes_text.get_width() // 2, HEIGHT - 90))
-
+            screen.blit(disconnect_text, (400 + 100 - disconnect_text.get_width() // 2, HEIGHT - 90))
+            screen.blit(send_shapes_text, (700 + 100 - send_shapes_text.get_width() // 2, HEIGHT - 90))
+            
             pygame.display.update()
 
     except Exception as e:

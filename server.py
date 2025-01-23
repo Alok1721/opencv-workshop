@@ -24,13 +24,18 @@ class SocketClient:
                 if data:
                     try:
                         json_data = json.loads(data.decode())
-                        if not self.team_name:
-                            self.team_name = json_data.get("team_name", "")
+                        if (not self.team_name or json_data.get("type","") == "init"):
+                            if(self.manager.valid_player(json_data['team_name'])):
+                                self.team_name = json_data['team_name']
+                                player_socket_map[self.team_name] = self 
+                                self.manager.create_player(self.team_name)
+                                print(f"Client {self.client_address} identified as {self.team_name}")
+                            else:
+                                self.close_connection()
 
-                            player_socket_map[self.team_name] = self
-                            print(f"Client {self.client_address} identified as {self.team_name}")
-                        
-                        self.manager.process_player_data(self.team_name,json_data)
+                        if json_data.get('type',"") == 'answer':
+                            print(f"Player {self.team_name} sent data: {json_data}")
+                            self.manager.process_player_data(self.team_name,json_data)
                     except json.JSONDecodeError:
                         print(f"Failed to decode JSON from {self.client_address}: {data.decode()}")
                         self.send_data({"error": "Invalid JSON format"})
@@ -52,6 +57,7 @@ class SocketClient:
         self.active = False
         self.client_socket.close()
         player_socket_map.pop(self.team_name, None)
+        self.manager.remove_player(self.team_name)
         print(f"Connection to {self.client_address} closed.")
 
 

@@ -21,10 +21,10 @@ bg = pygame.image.load("back.jpg")
 bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
 
 # Server state
-teams = []
+teams = ["Team1", "Team2", "Team3", "Team4"]    
 scores = {}
 correct_result = [[1, 2], [3, 5], [6, 7], [5, 6]]
-players = []  # Store players as instances of Player class
+players = {} # Store players as instances of Player class
 accepting_clients = True
 
 # Video Capture for webcam
@@ -113,9 +113,8 @@ class Manager:
 
     def process_player_data(self, team_name, data):
         # {'shapes': [['Circle', 'invalid', [255, 255, 255]], ['Triangle', 'invalid', [255, 255, 255]], ['Circle', 'invalid', [255, 255, 255]], ['Triangle', 'blue', [0, 0, 255]], ['Circle', 'red', [255, 0, 0]], ['Rectangle', 'green', [0, 255, 0]], ['Triangle', 'invalid', [255, 255, 255]], ['Circle', 'invalid', [255, 255, 255]]]}
-        if not any(player.client_name == team_name for player in players):
-            player = Player(team_name)
-            players.append(player)
+       
+        print(f"Player {team_name} sent data: {data}")
         player_shapes = data.get("shapes", [])
         print(f"Player {team_name} sent {len(player_shapes)} shapes.")
         print(player_shapes)
@@ -127,25 +126,32 @@ class Manager:
         for i in range(len(validation_data)):
             if validation_data[i] in player_shapes:
                 correct += 10
-        for player in players:
-            if player.client_name == team_name:
-                if len(player_shapes) != len(validation_data):
-                    correct-=5;
-                player.score = max(correct,player.score)
-                player.stage = 1  
-                player.tries -= 1
-                self.socket_interface.send_to_client(team_name, {
-                    "type": "result",
-                    "score": player.score,
-                    "stage": player.stage
-                })
 
+        player = players[team_name]
+        if len(player_shapes) > len(validation_data):
+            correct-= (len(player_shapes) - len(validation_data))*5
+            
+        player.score = max(correct,player.score)
+        player.stage = 1  
+        player.tries -= 1
         self.socket_interface.send_to_client(team_name, {
             "type": "result",
-            "score": correct,
-            "stage": 1
+            "score": player.score,
+            "stage": player.stage
         })
+    def create_player(self, team_name):
+        if team_name not in teams:
+            return
+        players[team_name] = Player(team_name)
 
+        
+    def valid_player(self, team_name):
+        if team_name not in teams:
+            return False
+        return True
+    def remove_player(self, team_name):
+        players.pop(team_name, None)
+        
 
     def draw_main_screen(self):
         """Draw the main screen (without video) for server interface."""
@@ -155,7 +161,7 @@ class Manager:
         screen.blit(title, (WIDTH // 2 - title.get_width() // 2, 50))
         
         start_y = 150
-        for idx, player in enumerate(players):
+        for idx, player in enumerate(players.values()):
             pygame.draw.rect(screen, components.GRAY, (WIDTH // 2 - 300, start_y + idx * 60, 600, 50), border_radius=10)
             text = components.font.render(f"{player.client_name} (Score: {player.score}, Tries: {player.tries}, Stage: {player.stage})", True, components.BLACK)
             screen.blit(text, (WIDTH // 2 - text.get_width() // 2, start_y + idx * 60 + 10))
@@ -175,7 +181,7 @@ class Manager:
         pygame.display.flip()
 
     def run(self):
-        cap = cv2.VideoCapture(1)
+        cap = cv2.VideoCapture(0)
         socket_thread = threading.Thread(target=self.socket_interface.run_server)
         socket_thread.start()
 
