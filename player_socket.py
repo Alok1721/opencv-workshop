@@ -34,6 +34,8 @@ stage1_response=[]
 running = True
 frame_processed = False
 team_name = ""
+receive_score=0
+receive_stage=1
 
 BASIC_COLORS = {
     "red": (255, 0, 0),
@@ -70,34 +72,21 @@ def hsv_to_rgb(hsv_color):
     v = v/255
     r, g, b = colorsys.hsv_to_rgb(h, s, v)
     return (int(r * 255), int(g * 255), int(b * 255))
-def display_score_and_stage():
-    global global_score, global_stage
 
-    if global_score is not None and global_stage is not None:
-        # Circular background for score
-        pygame.draw.circle(screen, (0, 0, 255), (400, 50), 40)  # Blue circle at (400, 50) with radius 40
-        score_text = font.render(f"Score: {global_score}", True, components.WHITE)
-        screen.blit(score_text, (400 - score_text.get_width() // 2, 50 - score_text.get_height() // 2))  # Center text
-
-        # Circular background for stage
-        pygame.draw.circle(screen, (255, 0, 0), (400, 150), 40)  # Red circle at (400, 150) with radius 40
-        stage_text = font.render(f"Stage: {global_stage}", True, components.WHITE)
-        screen.blit(stage_text, (400 - stage_text.get_width() // 2, 150 - stage_text.get_height() // 2))  # Center text
-    pygame.display.update()
 def display_score_and_stage():
     global receive_score, receive_stage
 
     if receive_score is not None and receive_stage is not None:
         # Circular background for score
-        pygame.draw.circle(screen, (0, 0, 255), (400, 50), 40)  # Blue circle at (400, 50) with radius 40
+        pygame.draw.circle(screen, (0, 0, 255), (500, 50), 40)  # Blue circle at (400, 50) with radius 40
         score_text = font.render(f"Score: {receive_score}", True, components.WHITE)
         screen.blit(score_text, (400 - score_text.get_width() // 2, 50 - score_text.get_height() // 2))  # Center text
 
         # Circular background for stage
-        pygame.draw.circle(screen, (255, 0, 0), (400, 150), 40)  # Red circle at (400, 150) with radius 40
+        pygame.draw.circle(screen, (255, 0, 0), (500, 150), 40)  # Red circle at (400, 150) with radius 40
         stage_text = font.render(f"Stage: {receive_stage}", True, components.WHITE)
         screen.blit(stage_text, (400 - stage_text.get_width() // 2, 150 - stage_text.get_height() // 2))  # Center text
-
+    pygame.display.update()
 
 def receive_message():
     global client_socket, frame_processed, last_processed_frame
@@ -210,7 +199,7 @@ def draw_shape_list():
             break  # Prevent overflow beyond screen width
 
         screen.blit(shape_text, (text_x, text_y)) # Space between each entry
-    display_score_and_stage()
+    
 
 
 # def draw_shape_list():
@@ -360,6 +349,8 @@ def start_client():
             screen.blit(disconnect_text, (400 + 100 - disconnect_text.get_width() // 2, HEIGHT - 90))
             screen.blit(send_shapes_text, (700 + 100 - send_shapes_text.get_width() // 2, HEIGHT - 90))
             
+            display_score_and_stage()
+
             pygame.display.update()
 
     except Exception as e:
